@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
+  <style>
+    body        { font-family: sans-serif; max-width: 600px; margin: 2rem auto; }
+    #log        { border: 1px solid #ccc; height: 300px; overflow-y: auto;
+                  padding: 8px; font-family: monospace; font-size: 13px; }
+    .sent       { color: #185FA5; }
+    .received   { color: #0F6E56; }
+    .system     { color: #888; font-style: italic; }
+    input, button { padding: 8px; font-size: 14px; }
+    input       { width: 70%; }
+  </style>
+</head>
+<body>
+
+  <h3>SignalR Chat Tester</h3>
+
+  <div>
+    <input id="token"    placeholder="Paste JWT here"        style="width:100%;margin-bottom:8px"/>
+    <input id="receiver" placeholder="Paste receiver userId" style="width:100%;margin-bottom:8px"/>
+    <button onclick="connect()">Connect</button>
+  </div>
+
+  <div id="log" style="margin:16px 0"></div>
+
+  <div>
+    <input id="msg" placeholder="Type a message..." />
+    <button onclick="send()">Send</button>
+  </div>
+
+<script>
+  let connection = null;
+
+  function log(text, cls = "system") {
+    const div = document.createElement("div");
+    div.className = cls;
+    div.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+    const el = document.getElementById("log");
+    el.appendChild(div);
+    el.scrollTop = el.scrollHeight;   // auto-scroll to bottom
+  }
+
+  async function connect() {
+    const token    = document.getElementById("token").value.trim();
+    const receiver = document.getElementById("receiver").value.trim();
+
+    if (!token) return log("Paste a JWT first.");
+
+    connection = new signalR.HubConnectionBuilder()
+      .withUrl("http://localhost:5202/hubs/chat", {
+        accessTokenFactory: () => token
+      })
+      .withAutomaticReconnect()           // reconnects if connection drops
+      .configureLogging(signalR.LogLevel.Warning)
+      .build();
+
+    connection.on("UnreadCount",          n    => log(`Unread messages: ${n}`));
+    connection.on("ReceiveMessage",       msg  => log(`Received: ${msg.content}`, "received"));
+    connection.on("NewMessageNotification", n  => log(`Notification from ${n.from}: ${n.preview}`));
+    connection.on("MessageSent",          msg  => log(`Sent: ${msg.content}`, "sent"));
+    connection.on("MessagesRead",         data => log(`Read by ${data.by}`));
+
+    connection.onreconnecting(() => log("Reconnecting..."));
+    connection.onreconnected(() =>  log("Reconnected!"));
+    connection.onclose(() =>        log("Disconnected."));
+
+    try {
+      await connection.start();
+      log("Connected!");
+    } catch (err) {
+      log(`Connection failed: ${err.message}`);
+    }
+  }
+
+  async function send() {
+    const receiver = document.getElementById("receiver").value.trim();
+    const text     = document.getElementById("msg").value.trim();
+
+    if (!connection || !text || !receiver) return;
+
+    try {
+      await connection.invoke("SendMessage", receiver, text);
+      document.getElementById("msg").value = "";
+    } catch (err) {
+      log(`Error: ${err.message}`);
+    }
+  }
+
+  // allow pressing Enter to send
+  document.getElementById("msg")
+    ?.addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+</script>
+</body>
+</html>
